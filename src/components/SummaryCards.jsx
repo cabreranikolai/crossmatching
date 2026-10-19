@@ -5,8 +5,8 @@ const cardStyles = {
 
 export function SummaryCards({ summary }) {
   const cards = [
-    { label: 'Total Records File 1', value: summary.totalFile1, tone: 'total' },
-    { label: 'Total Records File 2', value: summary.totalFile2, tone: 'total' },
+    { label: 'Total Reference Records', value: summary.totalFile1, tone: 'total' },
+    { label: 'Total Comparison Records', value: summary.totalFile2, tone: 'total' },
     { label: 'Matches', value: summary.matchedCount, tone: 'matched' },
   ]
 

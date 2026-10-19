@@ -26,17 +26,19 @@ const initialFileState = {
   columnCount: 0,
 }
 
+const initialComparisonFile = { id: 0, ...initialFileState, selectedColumn: '', isLoading: false }
+
 const tabs = [
   { id: 'all', label: 'All Matches' },
-  { id: 'file1', label: 'Only in File 1' },
-  { id: 'file2', label: 'Only in File 2' },
+  { id: 'file1', label: 'Only in Reference' },
+  { id: 'file2', label: 'Only in Comparison Files' },
 ]
 
 function App() {
-  const [file1, setFile1] = useState(initialFileState)
-  const [file2, setFile2] = useState(initialFileState)
+  const [referenceFile, setReferenceFile] = useState(initialFileState)
+  const [comparisonFiles, setComparisonFiles] = useState([initialComparisonFile])
   const [config, setConfig] = useState(defaultConfig)
-  const [selectedColumns, setSelectedColumns] = useState({ file1: '', file2: '' })
+  const [referenceColumn, setReferenceColumn] = useState('')
   const [results, setResults] = useState(null)
   const [activeTab, setActiveTab] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -44,87 +46,153 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' })
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState({ file1: false, file2: false })
+  const [referenceLoading, setReferenceLoading] = useState(false)
 
-  const readFile = async (file, side) => {
+  const uploadedComparisonFiles = comparisonFiles.filter((file) => file.file)
+  const comparisonData = useMemo(() => {
+    const files = comparisonFiles.filter((file) => file.file)
+    const headers = [...new Set(files.flatMap((file) => file.headers))]
+    const uniqueHeader = (base) => {
+      let header = base
+      let suffix = 2
+      while (headers.includes(header)) {
+        header = `${base} ${suffix}`
+        suffix += 1
+      }
+      return header
+    }
+    const sourceHeader = uniqueHeader('Source File')
+    headers.push(sourceHeader)
+    const keyHeader = uniqueHeader('__crossmatch_key__')
+    const rows = files.flatMap((file) =>
+      file.rows.map((row) => ({
+        ...row,
+        [sourceHeader]: file.fileName,
+        [keyHeader]: row[file.selectedColumn],
+      })),
+    )
+
+    return {
+      headers,
+      keyHeader,
+      rows,
+      fileName: files.map((file) => file.fileName).join(', '),
+      rowCount: rows.length,
+      columnCount: headers.length,
+    }
+  }, [comparisonFiles])
+
+  const readReferenceFile = async (file) => {
     setError('')
     setResults(null)
-    setLoading((previous) => ({ ...previous, [side]: true }))
+    setReferenceLoading(true)
 
     try {
       const parsed = await readSpreadsheet(file)
-      const nextState = {
+      setReferenceFile({
         file,
         fileName: parsed.fileName,
         headers: parsed.headers,
         rows: parsed.rows,
         rowCount: parsed.rowCount,
         columnCount: parsed.columnCount,
-      }
-
-      if (side === 'file1') {
-        setFile1(nextState)
-        setSelectedColumns((previous) => ({
-          ...previous,
-          file1: parsed.headers[0] || '',
-        }))
-      } else {
-        setFile2(nextState)
-        setSelectedColumns((previous) => ({
-          ...previous,
-          file2: parsed.headers[0] || '',
-        }))
-      }
+      })
+      setReferenceColumn(parsed.headers[0] || '')
     } catch (readError) {
       setError(readError.message)
-      if (side === 'file1') {
-        setFile1(initialFileState)
-      } else {
-        setFile2(initialFileState)
-      }
+      setReferenceFile(initialFileState)
+      setReferenceColumn('')
     } finally {
-      setLoading((previous) => ({ ...previous, [side]: false }))
+      setReferenceLoading(false)
+    }
+  }
+
+  const readComparisonFile = async (file, id) => {
+    setError('')
+    setResults(null)
+    setComparisonFiles((previous) =>
+      previous.map((comparisonFile) =>
+        comparisonFile.id === id ? { ...comparisonFile, isLoading: true } : comparisonFile,
+      ),
+    )
+
+    try {
+      const parsed = await readSpreadsheet(file)
+      setComparisonFiles((previous) =>
+        previous.map((comparisonFile) =>
+          comparisonFile.id === id
+            ? {
+                id,
+                file,
+                fileName: parsed.fileName,
+                headers: parsed.headers,
+                rows: parsed.rows,
+                rowCount: parsed.rowCount,
+                columnCount: parsed.columnCount,
+                selectedColumn: parsed.headers[0] || '',
+                isLoading: false,
+              }
+            : comparisonFile,
+        ),
+      )
+    } catch (readError) {
+      setError(readError.message)
+      setComparisonFiles((previous) =>
+        previous.map((comparisonFile) =>
+          comparisonFile.id === id
+            ? { ...initialComparisonFile, id }
+            : comparisonFile,
+        ),
+      )
     }
   }
 
   const handleCrossmatch = () => {
-    if (!file1.file || !file2.file) {
-      setError('Please upload both Excel files before running the comparison.')
+    if (referenceLoading || comparisonFiles.some((file) => file.isLoading)) {
+      setError('Wait for all selected workbooks to finish loading before crossmatching.')
       return
     }
 
-    if (!selectedColumns.file1) {
-      setError('No matching column has been selected for File 1.')
+    if (!referenceFile.file || uploadedComparisonFiles.length === 0) {
+      setError('Please upload a reference file and at least one comparison file.')
       return
     }
 
-    if (!selectedColumns.file2) {
-      setError('No matching column has been selected for File 2.')
+    if (!referenceColumn) {
+      setError('No matching column has been selected for the reference file.')
+      return
+    }
+
+    if (uploadedComparisonFiles.some((file) => !file.selectedColumn)) {
+      setError('Select a matching column for every comparison file.')
       return
     }
 
     const crossmatchResult = crossmatchRecords(
-      file1.rows,
-      file2.rows,
-      selectedColumns.file1,
-      selectedColumns.file2,
+      referenceFile.rows,
+      comparisonData.rows,
+      referenceColumn,
+      comparisonData.keyHeader,
       config,
     )
     const matchedFile2Rows = getMatchedFile2Rows(
-      file1.rows,
-      file2.rows,
-      selectedColumns.file1,
-      selectedColumns.file2,
+      referenceFile.rows,
+      comparisonData.rows,
+      referenceColumn,
+      comparisonData.keyHeader,
       config,
     )
 
     setResults({
       ...crossmatchResult,
       matchedFile2Rows,
-      file1,
-      file2,
-      selectedFile1Column: selectedColumns.file1,
-      selectedFile2Column: selectedColumns.file2,
+      file1: referenceFile,
+      file2: comparisonData,
+      comparisonHeaders: comparisonData.headers,
+      selectedFile1Column: referenceColumn,
+      selectedFile2Column: uploadedComparisonFiles
+        .map((file) => `${file.fileName}: ${file.selectedColumn}`)
+        .join('; '),
     })
     setActiveTab('all')
     setSearchTerm('')
@@ -139,10 +207,11 @@ function App() {
     }
 
     exportCrossmatchWorkbook({
-      file1,
-      file2,
-      selectedFile1Column: selectedColumns.file1,
-      selectedFile2Column: selectedColumns.file2,
+      file1: results.file1,
+      file2: results.file2,
+      file2Headers: results.comparisonHeaders,
+      selectedFile1Column: results.selectedFile1Column,
+      selectedFile2Column: results.selectedFile2Column,
       summary: results.summary,
       matched: results.matched,
       onlyInFile1: results.onlyInFile1,
@@ -157,16 +226,16 @@ function App() {
     }
 
     exportMatchedRecords({
-      file2Headers: file2.headers,
+      file2Headers: results.comparisonHeaders,
       matchedRows: results.matchedFile2Rows,
       unmatchedRows: results.onlyInFile2,
     })
   }
 
   const handleReset = () => {
-    setFile1(initialFileState)
-    setFile2(initialFileState)
-    setSelectedColumns({ file1: '', file2: '' })
+    setReferenceFile(initialFileState)
+    setComparisonFiles([initialComparisonFile])
+    setReferenceColumn('')
     setConfig(defaultConfig)
     setResults(null)
     setError('')
@@ -174,7 +243,15 @@ function App() {
     setActiveTab('all')
     setCurrentPage(1)
     setSortConfig({ key: '', direction: 'asc' })
-    setLoading({ file1: false, file2: false })
+    setReferenceLoading(false)
+  }
+
+  const addComparisonFile = () => {
+    setComparisonFiles((previous) => [
+      ...previous,
+      { ...initialComparisonFile, id: Math.max(...previous.map((file) => file.id)) + 1 },
+    ])
+    setResults(null)
   }
 
   const handleSort = (key) => {
@@ -198,22 +275,22 @@ function App() {
     if (activeTab === 'all') {
       return results.matchedFile2Rows.map((row, index) => ({
         id: `match-${index}`,
-        ...Object.fromEntries(file2.headers.map((header) => [header, row[header] ?? ''])),
+        ...Object.fromEntries(results.comparisonHeaders.map((header) => [header, row[header] ?? ''])),
       }))
     }
 
     if (activeTab === 'file1') {
       return results.onlyInFile1.map((row, index) => ({
         id: `file1-only-${index}`,
-        ...Object.fromEntries(file1.headers.map((header) => [header, row[header] ?? ''])),
+        ...Object.fromEntries(referenceFile.headers.map((header) => [header, row[header] ?? ''])),
       }))
     }
 
     return results.onlyInFile2.map((row, index) => ({
       id: `file2-only-${index}`,
-      ...Object.fromEntries(file2.headers.map((header) => [header, row[header] ?? ''])),
+      ...Object.fromEntries(results.comparisonHeaders.map((header) => [header, row[header] ?? ''])),
     }))
-  }, [activeTab, file1.headers, file2.headers, results])
+  }, [activeTab, referenceFile.headers, results])
 
   const columns = useMemo(() => {
     if (!results) {
@@ -221,12 +298,12 @@ function App() {
     }
 
     if (activeTab === 'all') {
-      return file2.headers.map((header) => ({ key: header, label: header }))
+      return results.comparisonHeaders.map((header) => ({ key: header, label: header }))
     }
 
-    const sourceHeaders = activeTab === 'file1' ? file1.headers : file2.headers
+    const sourceHeaders = activeTab === 'file1' ? referenceFile.headers : results.comparisonHeaders
     return sourceHeaders.map((header) => ({ key: header, label: header }))
-  }, [activeTab, file1.headers, file2.headers, results])
+  }, [activeTab, referenceFile.headers, results])
 
   const visibleRows = useMemo(() => {
     const filtered = tableRows.filter((row) => {
@@ -271,7 +348,7 @@ function App() {
                 Excel Crossmatch Tool
               </div>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-                Compare two Excel files quickly and securely
+                Crossmatch Excel files quickly and securely
               </h1>
             </div>
             <div className="flex gap-3">
@@ -307,55 +384,79 @@ function App() {
           </div>
         )}
 
-        {!file1.file && !file2.file ? (
+        {!referenceFile.file && uploadedComparisonFiles.length === 0 && (
           <main className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="mx-auto max-w-3xl text-center">
               <div className="mb-4 text-4xl font-bold tracking-tight text-slate-900">
                 Excel Crossmatch Tool
               </div>
               <p className="text-lg text-slate-600">
-                Compare two Excel files and quickly identify matching and unmatched records.
+                Compare a reference workbook with one or more Excel files to find matching records.
               </p>
-              <div className="mt-8 grid gap-5 md:grid-cols-2">
-                <FileUpload label="Upload File 1" file={file1.file} isLoading={loading.file1} onFileSelected={(file) => readFile(file, 'file1')} />
-                <FileUpload label="Upload File 2" file={file2.file} isLoading={loading.file2} onFileSelected={(file) => readFile(file, 'file2')} />
-              </div>
-              <div className="mt-6 text-sm text-slate-500">100% browser-based • Your files stay on your device</div>
             </div>
           </main>
-        ) : (
-          <>
-            <section className="mb-8 grid gap-5 lg:grid-cols-2">
-              <FileUpload label="File 1" file={file1.file} isLoading={loading.file1} onFileSelected={(file) => readFile(file, 'file1')} />
-              <FileUpload label="File 2" file={file2.file} isLoading={loading.file2} onFileSelected={(file) => readFile(file, 'file2')} />
-            </section>
+        )}
 
+        <section className="mb-8 mt-8 grid gap-5 lg:grid-cols-2">
+          <FileUpload
+            label="Reference File"
+            file={referenceFile.file}
+            isLoading={referenceLoading}
+            onFileSelected={readReferenceFile}
+          />
+          {comparisonFiles.map((file, index) => (
+            <FileUpload
+              key={file.id}
+              label={`Comparison File ${index + 1}`}
+              file={file.file}
+              isLoading={file.isLoading}
+              onFileSelected={(selectedFile) => readComparisonFile(selectedFile, file.id)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={addComparisonFile}
+            className="rounded-xl border border-primary-200 bg-white px-4 py-3 text-sm font-semibold text-primary-700 transition hover:border-primary-300 hover:bg-primary-50"
+          >
+            + Add another comparison file
+          </button>
+        </section>
+
+        {(referenceFile.file || uploadedComparisonFiles.length > 0) && (
+          <>
             <section className="mb-8">
-              <FilePreview
-                fileName={file1.fileName}
-                rowCount={file1.rowCount}
-                columnCount={file1.columnCount}
-                headers={file1.headers}
-                rows={file1.rows}
-              />
-              <FilePreview
-                fileName={file2.fileName}
-                rowCount={file2.rowCount}
-                columnCount={file2.columnCount}
-                headers={file2.headers}
-                rows={file2.rows}
-              />
+              {referenceFile.file && (
+                <FilePreview
+                  fileName={referenceFile.fileName}
+                  rowCount={referenceFile.rowCount}
+                  columnCount={referenceFile.columnCount}
+                  headers={referenceFile.headers}
+                  rows={referenceFile.rows}
+                />
+              )}
+              {uploadedComparisonFiles.map((file) => (
+                <FilePreview
+                  key={file.id}
+                  fileName={file.fileName}
+                  rowCount={file.rowCount}
+                  columnCount={file.columnCount}
+                  headers={file.headers}
+                  rows={file.rows}
+                />
+              ))}
             </section>
 
             <section className="mb-8">
               <CrossmatchConfig
-                file1Headers={file1.headers}
-                file2Headers={file2.headers}
-                file1Column={selectedColumns.file1}
-                file2Column={selectedColumns.file2}
+                referenceHeaders={referenceFile.headers}
+                comparisonFiles={comparisonFiles}
+                referenceColumn={referenceColumn}
                 config={config}
-                onColumnChange={(side, value) => {
-                  setSelectedColumns((previous) => ({ ...previous, [side]: value }))
+                onReferenceColumnChange={setReferenceColumn}
+                onComparisonColumnChange={(id, value) => {
+                  setComparisonFiles((previous) =>
+                    previous.map((file) => (file.id === id ? { ...file, selectedColumn: value } : file)),
+                  )
                 }}
                 onOptionChange={(option, value) => {
                   setConfig((previous) => ({ ...previous, [option]: value }))
@@ -366,7 +467,8 @@ function App() {
                 <button
                   type="button"
                   onClick={handleCrossmatch}
-                  className="rounded-xl bg-primary-600 px-5 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-primary-700"
+                  disabled={referenceLoading || comparisonFiles.some((file) => file.isLoading)}
+                  className="rounded-xl bg-primary-600 px-5 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Crossmatch Files
                 </button>
@@ -399,7 +501,6 @@ function App() {
                       setCurrentPage(1)
                     }}
                   />
-
                   <ResultsTable
                     rows={paginatedRows}
                     columns={columns}
@@ -421,7 +522,6 @@ function App() {
             )}
           </>
         )}
-
         <footer className="mt-8 text-center text-sm text-slate-500">
           Your files are processed locally in your browser and are not uploaded to a server.
         </footer>

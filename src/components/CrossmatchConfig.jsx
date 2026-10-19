@@ -1,12 +1,12 @@
 import { ColumnSelector } from './ColumnSelector.jsx'
 
 export function CrossmatchConfig({
-  file1Headers,
-  file2Headers,
-  file1Column,
-  file2Column,
+  referenceHeaders,
+  comparisonFiles,
+  referenceColumn,
   config,
-  onColumnChange,
+  onReferenceColumnChange,
+  onComparisonColumnChange,
   onOptionChange,
 }) {
   return (
@@ -22,19 +22,22 @@ export function CrossmatchConfig({
 
       <div className="grid gap-5 md:grid-cols-2">
         <ColumnSelector
-          label="File 1 Matching Column"
-          options={file1Headers}
-          value={file1Column}
-          onChange={(value) => onColumnChange('file1', value)}
-          disabled={!file1Headers.length}
+          label="Reference Matching Column"
+          options={referenceHeaders}
+          value={referenceColumn}
+          onChange={onReferenceColumnChange}
+          disabled={!referenceHeaders.length}
         />
-        <ColumnSelector
-          label="File 2 Matching Column"
-          options={file2Headers}
-          value={file2Column}
-          onChange={(value) => onColumnChange('file2', value)}
-          disabled={!file2Headers.length}
-        />
+        {comparisonFiles.map((file, index) => (
+          <ColumnSelector
+            key={file.id}
+            label={`Comparison File ${index + 1} Matching Column${file.fileName ? ` (${file.fileName})` : ''}`}
+            options={file.headers}
+            value={file.selectedColumn}
+            onChange={(value) => onComparisonColumnChange(file.id, value)}
+            disabled={!file.headers.length}
+          />
+        ))}
       </div>
 
       <div className="mt-6 space-y-3">
