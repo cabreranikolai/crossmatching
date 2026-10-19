@@ -10,14 +10,12 @@ export function CrossmatchConfig({
   onOptionChange,
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Crossmatch Configuration
-          </div>
-          <h2 className="mt-1 text-xl font-semibold text-slate-900">Choose comparison key</h2>
-        </div>
+    <div>
+      <div className="mb-5">
+        <h2 className="text-base font-semibold tracking-tight text-slate-900">Matching columns</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Choose the column that identifies the same record in each file.
+        </p>
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
@@ -31,7 +29,7 @@ export function CrossmatchConfig({
         {comparisonFiles.map((file, index) => (
           <ColumnSelector
             key={file.id}
-            label={`Comparison File ${index + 1} Matching Column${file.fileName ? ` (${file.fileName})` : ''}`}
+            label={`Comparison ${index + 1}${file.fileName ? ` · ${file.fileName}` : ''}`}
             options={file.headers}
             value={file.selectedColumn}
             onChange={(value) => onComparisonColumnChange(file.id, value)}
@@ -40,31 +38,31 @@ export function CrossmatchConfig({
         ))}
       </div>
 
-      <div className="mt-6 space-y-3">
-        <label className="flex items-center gap-3 text-sm text-slate-700">
+      <div className="mt-6 flex flex-wrap gap-x-6 gap-y-3 border-t border-slate-100 pt-5">
+        <label className="flex items-center gap-2.5 text-sm text-slate-600">
           <input
             type="checkbox"
             checked={config.trimWhitespace}
             onChange={() => onOptionChange('trimWhitespace', !config.trimWhitespace)}
-            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
           Ignore leading/trailing spaces
         </label>
-        <label className="flex items-center gap-3 text-sm text-slate-700">
+        <label className="flex items-center gap-2.5 text-sm text-slate-600">
           <input
             type="checkbox"
             checked={config.caseSensitive}
             onChange={() => onOptionChange('caseSensitive', !config.caseSensitive)}
-            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
           Case-sensitive matching
         </label>
-        <label className="flex items-center gap-3 text-sm text-slate-700">
+        <label className="flex items-center gap-2.5 text-sm text-slate-600">
           <input
             type="checkbox"
             checked={config.ignoreEmpty}
             onChange={() => onOptionChange('ignoreEmpty', !config.ignoreEmpty)}
-            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
           Ignore empty values
         </label>

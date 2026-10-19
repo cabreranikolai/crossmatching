@@ -1,68 +1,58 @@
 import * as XLSX from 'xlsx'
 
-export const readSpreadsheet = (file) => {
+export const readSpreadsheet = async (file) => {
   if (!file) {
-    return Promise.reject(new Error('No file provided.'))
+    throw new Error('No file provided.')
   }
 
   const extension = file.name.split('.').pop()?.toLowerCase()
-  if (!['xlsx', 'xls'].includes(extension || '')) {
-    return Promise.reject(new Error('Unsupported file format. Please upload an Excel workbook (.xlsx or .xls).'))
+  if (!['xlsx', 'xls', 'csv'].includes(extension || '')) {
+    throw new Error('Unsupported file format. Please upload an Excel workbook (.xlsx, .xls) or CSV file (.csv).')
   }
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
+  try {
+    const isCsv = extension === 'csv'
+    const data = isCsv ? await file.text() : await file.arrayBuffer()
+    const workbook = XLSX.read(data, {
+      type: isCsv ? 'string' : 'array',
+      cellDates: true,
+      raw: false,
+    })
 
-    reader.onload = (event) => {
-      try {
-        const arrayBuffer = event.target?.result
-        const workbook = XLSX.read(arrayBuffer, {
-          type: 'array',
-          cellDates: true,
-          raw: false,
-        })
-
-        const sheetName = workbook.SheetNames[0]
-        if (!sheetName) {
-          reject(new Error('The workbook does not contain a usable worksheet.'))
-          return
-        }
-
-        const worksheet = workbook.Sheets[sheetName]
-        const rows = XLSX.utils.sheet_to_json(worksheet, {
-          defval: '',
-          blankrows: false,
-          raw: false,
-        })
-
-        if (!rows.length) {
-          reject(new Error('The selected worksheet appears to be empty.'))
-          return
-        }
-
-        const headers = Object.keys(rows[0] || {})
-        if (!headers.length) {
-          reject(new Error('The worksheet is missing column headers.'))
-          return
-        }
-
-        resolve({
-          fileName: file.name,
-          sheetName,
-          headers,
-          rows,
-          rowCount: rows.length,
-          columnCount: headers.length,
-        })
-      } catch {
-        reject(new Error('The Excel file appears to be corrupted or unreadable.'))
-      }
+    const sheetName = workbook.SheetNames[0]
+    if (!sheetName) {
+      throw new Error('The selected file does not contain any usable data.')
     }
 
-    reader.onerror = () => {
-      reject(new Error('The Excel file could not be read.'))
+    const worksheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json(worksheet, {
+      defval: '',
+      blankrows: false,
+      raw: false,
+    })
+
+    if (!rows.length) {
+      throw new Error('The selected file appears to be empty.')
     }
 
-    reader.readAsArrayBuffer(file)
-  })
+    const headers = Object.keys(rows[0] || {})
+    if (!headers.length) {
+      throw new Error('The selected file is missing column headers.')
+    }
+
+    return {
+      fileName: file.name,
+      sheetName,
+      headers,
+      rows,
+      rowCount: rows.length,
+      columnCount: headers.length,
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('The selected file')) {
+      throw error
+    }
+
+    throw new Error('The selected file appears to be corrupted or unreadable.')
+  }
 }
